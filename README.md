@@ -43,10 +43,10 @@ All the objective cost files and .lp files are provided in the folder `Instances
 ```
 p
 n  m
-c_11, c_12, ..., c_1n
-c_21, c_22, ..., c_2n
+c_11 c_12 ... c_1n
+c_21 c_22 ... c_2n
 ......
-c_p1, c_p2,..., c_pn
+c_p1 c_p2 ... c_pn
 ```
 Instance example: (AP_p-3_n-5_ins-1)	Assignment problem with dimension 3; 25 variables and 10 constraints. The costs of the objective functions are in the three last lines.
 
