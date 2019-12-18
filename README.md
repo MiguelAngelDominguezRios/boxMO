@@ -27,16 +27,17 @@ The software provide more options to execute, such as limitation of the number o
 - (arg2) is the `.lp` file
 - (arg3) is the maximum total execution time in seconds (0 for unlimited time)
 - (arg4) is the maximum size of the Pareto front (0 for unlimited size)
-- (arg5) is the type of partition. Type 1(full), 2(p-partition)
-- (arg6) is the parameterization model. Type 1(chalmet), 2(tchebycheff) (arg7) is the box value. Type 11(volume), 14(reduced_scaled)
-- (arg8) is the number of set of boxes used. Type 1 or alternate.
-- (arg9) is the filtering proccess. Type 1(RE).
-- (arg10) is the value of CPX_PARAM_PARALLEL. Type -1, 0 or 1
-- (arg11) is the value of CPX_PARAM_THREADS. Type 0 or a(positive integer)
+- (arg5) is the type of partition. Type 1(`full`) or 2(`p-partition`)
+- (arg6) is the parameterization model. Type 1(`chalmet`) or 2(`tchebycheff`) 
+- (arg7) is the box value. Type 11(`volume`) or 14(`reduced_scaled`)
+- (arg8) is the number of set of boxes used. Type `1` or `alternate`.
+- (arg9) is the filtering proccess. Type 1(`RE`).
+- (arg10) is the value of CPX_PARAM_PARALLEL. Type `-1`, `0` or `1`
+- (arg11) is the value of CPX_PARAM_THREADS. Type `0` or (a positive integer)
 
 # Objective file and lp file
 
-All the objective cost files and .lp files are provided in the archive `Instances.tar.gz`
+All the objective cost files and .lp files are provided in the folder `Instances`
 
 ## Objective file archive must have the following format:
 ```
@@ -75,11 +76,31 @@ Subject To
  c9:  x4 + x9 + x14 + x19 + x24  = 1
  c10: x5 + x10 + x15 + x20 + x25  = 1
 Bounds
- 0 <= x1 <= 1	 0 <= x2 <= 1	 0 <= x3 <= 1	 0 <= x4 <= 1	 0 <= x5 <= 1
- 0 <= x6 <= 1	 0 <= x7 <= 1	 0 <= x8 <= 1	 0 <= x9 <= 1	 0 <= x10 <= 1
- 0 <= x11 <= 1	 0 <= x12 <= 1	 0 <= x13 <= 1	 0 <= x14 <= 1	 0 <= x15 <= 1
- 0 <= x16 <= 1	 0 <= x17 <= 1	 0 <= x18 <= 1	 0 <= x19 <= 1	 0 <= x20 <= 1
- 0 <= x21 <= 1	 0 <= x22 <= 1	 0 <= x23 <= 1	 0 <= x24 <= 1	 0 <= x25 <= 1
+ 0 <= x1 <= 1	 
+ 0 <= x2 <= 1	 
+ 0 <= x3 <= 1	 
+ 0 <= x4 <= 1	 
+ 0 <= x5 <= 1
+ 0 <= x6 <= 1	 
+ 0 <= x7 <= 1	 
+ 0 <= x8 <= 1	 
+ 0 <= x9 <= 1	 
+ 0 <= x10 <= 1
+ 0 <= x11 <= 1	 
+ 0 <= x12 <= 1	 
+ 0 <= x13 <= 1	 
+ 0 <= x14 <= 1	 
+ 0 <= x15 <= 1
+ 0 <= x16 <= 1	 
+ 0 <= x17 <= 1	
+ 0 <= x18 <= 1	
+ 0 <= x19 <= 1	
+ 0 <= x20 <= 1
+ 0 <= x21 <= 1	 
+ 0 <= x22 <= 1	
+ 0 <= x23 <= 1	 
+ 0 <= x24 <= 1	 
+ 0 <= x25 <= 1
 Binaries
  x1  x2  x3  x4  x5  x6  x7  x8  x9  x10  x11  x12  x13  x14  x15  x16  x17  x18  x19  x20  x21  x22  x23  x24  x25 
 End
