@@ -39,13 +39,17 @@ The software provide more options to execute, such as limitation of the number o
 All the objective cost files and .lp files are provided in the archive `Instances.tar.gz`
 
 ## Objective file archive must have the following format:
-```p
+```
+p
 n  m
 c_11, c_12, ..., c_1n
 c_21, c_22, ..., c_2n
 ......
 c_p1, c_p2,..., c_pn
+```
 Instance example: (AP_p-3_n-5_ins-1)	Assignment problem with dimension 3; 25 variables and 10 constraints. The costs of the objective functions are in the three last lines.
+
+```
 3
 25 10
 6 1 20 2 3 2 6 9 10 18 1 6 20 5 9 6 8 6 9 6 7 10 10 6 2 
