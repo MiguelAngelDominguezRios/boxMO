@@ -1,7 +1,7 @@
 //Algorithm which calculates the Pareto front of an MOCO (multiobjective combinatorial optimization) problem
 //
 //Author: Miguel Angel Dominguez Rios
-//Date of last modification : 09/12/2019
+//Date of last modification : 06/05/2020
 
 
 #include <list>
@@ -19,6 +19,8 @@
 #include "boxes2.h"
 
 
+int insert_lexi_solution_without_domination(int , solution *, list<solution> *, list<solution> *, int );
+
 //GLOBAL VARIABLES
 int box_id = 0;
 int boxes_destroyed = 0;
@@ -34,6 +36,13 @@ class Compare_value {
 public:
 	bool operator()(Box *x, Box *y) const {
 		return x->value > y->value;
+	}
+};
+
+class Compare_value3{
+public:
+	bool operator()(Box *x, Box *y) const {
+		return false;
 	}
 };
 
@@ -57,8 +66,8 @@ void error_input() {
 	printf("\n(arg3) is the maximum total execution time in seconds (0 for unlimited time)");
 	printf("\n(arg4) is the maximum size of the Pareto front (0 for unlimited size)");
 	printf("\n(arg5) is the type of partition. Type 1(full), 2(p-partition)");
-	printf("\n(arg6) is the parameterization model. Type 1(chalmet), 2(tchebycheff) or 3(benson)");
-	printf("\n(arg7) is the box value. Type 11(volume), 12(scaled), 13(reduced), 14(reduced_scaled)");
+	printf("\n(arg6) is the parameterization model. Type 1(chalmet), 2(tchebycheff) or 4(holzmann)");
+	printf("\n(arg7) is the box value. Type 11(volume), 14(reduced_scaled)");
 	printf("\n(arg8) is the number of set of boxes used. Type an integer positive number, or (inf) or (alternate).");
 	printf("\n(arg9) is the filtering proccess. Type 1(RE).");
 	printf("\n(arg10) is the value of CPX_PARAM_PARALLEL. Type -1, 0 or 1");
@@ -132,6 +141,7 @@ void Input_control(int argc, char **argv, Input *input) {
 	if ((model == "1") || (model == "chalmet"))		input->parameterization_model = "chalmet";
 	else if ((model == "2") || (model == "tchebycheff"))	input->parameterization_model = "tchebycheff";
 	else if ((model == "3") || (model == "benson"))		input->parameterization_model = "benson";
+	else if ((model == "4") || (model == "holzmann"))		input->parameterization_model = "holzmann";
 	else error_input();
 
 	//Box value
@@ -427,6 +437,18 @@ void CREATE_INITIAL_BOX(Box **B0, point *LB, point *UB, Input *input, double *sc
 	(*B0)->pos_sibling = 0;
 }
 
+void INSERT_INTO_LIST_3(MOILP *P, list<Box *> *L, Box *B) {
+	//We insert in L[position] the new box. If that element of the vector does not exist, we create it
+	//Every element of vector L is a tree, ordered by its value
+
+	TIEMPO t;
+	t.init();
+	L->push_back(B);
+	t.acum();
+	P->Count.TAddList += t.value();
+}
+
+
 void INSERT_INTO_LIST_2(MOILP *P, vector<multiset<Box *, Compare_value>> *L, Box *B, int position) {
 	//We insert in L[position] the new box. If that element of the vector does not exist, we create it
 	//Every element of vector L is a tree, ordered by its value
@@ -526,6 +548,76 @@ void Create_tchebycheff_model(MOILP *P, int *indice_col) {
 	free(new_c);
 }
 
+
+void Create_holzmann_model(MOILP *P, int *indice_col) {
+	//Given the original model, create the Tchebycheff model
+	// MIN ( lambda + epsilon * (sum (wi * (fi - zi^I))
+	// s.t.		x in X
+	//			lambda >= wi (fi(x) - zi^I) 		for i = 1,...,p
+	//			fi(x) <= ui							for i = 1,...,p
+	//
+
+	int i, j, matbeg = 0;
+	//double *new_c = (double *)malloc((P->n_var + 1) * sizeof(double));	//n+1 variables
+
+
+	//The sense of the new 2p constraints are of type <=
+	const char *sense = "L";
+
+
+	/*for (i = 0; i < P->n_var; i++) {
+		new_c[i] = 0;
+		for (j = 0; j < p; j++) {
+			new_c[i] += P->F[j][i];
+		}
+	}*/
+	
+
+	int index_lambda = P->n_var;
+	double coef_lambda;
+
+	//P->original_problem_type == 1 ? coef_lambda = 1.0 : coef_lambda = -1;
+	coef_lambda = 1;
+
+	CPXaddcols(*P->env, *P->lp, 1, 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL);		//Add variable lambda
+	//CPXchgobj(*P->env, *P->lp, P->n_var, indice_col, new_c); //min (eps*sum(fi))
+	//The objective coefficients will be set later
+	CPXchgobj(*P->env, *P->lp, 1, &index_lambda, &coef_lambda); //Add lambda coefficient in objective function
+
+	
+
+	int numrows = CPXgetnumrows(*P->env, *P->lp);
+
+
+	//Adding the p constraints  lambda >= wi (fi(x) - zi^I) 		for i = 1,...,p
+	for (i = 0; i < p; i++) {
+		string rowname = "max" + to_string(i + 1);
+		char *rownamechar = new char[rowname.length() + 1];
+		strcpy(rownamechar, rowname.c_str());
+		CPXaddrows(*P->env, *P->lp, 0, 1, P->n_var, 0, sense, &matbeg, indice_col, P->F[i], NULL, &rownamechar); //new constraint   
+		numrows++;
+		CPXchgcoef(*P->env, *P->lp, numrows - 1, P->n_var, -1.0);	// fi(x) - lambda <= 0	(The correct coefficients and rhs will be set later)
+		free(rownamechar);
+	}
+
+	//Adding the p constraints  	fi(x) <= ui							for i = 1,...,p
+	/*for (i = 0; i < p; i++) {
+		string rowname = "bound" + to_string(i + 1);
+		char *rownamechar = new char[rowname.length() + 1];
+		strcpy(rownamechar, rowname.c_str());
+		CPXaddrows(*P->env, *P->lp, 0, 1, P->n_var, 0, sense, &matbeg, indice_col, P->F[i], NULL, &rownamechar); //new constraint   
+		numrows++;
+		//CPXchgcoef(*P->env, *P->lp, numrows - 1, P->n_var, 1.0);	//fi(x)  <= 0 (The correct rhs will be set later)
+		free(rownamechar);
+	}*/
+
+	//free(new_c);
+	//CPXwriteprob(*P->env, *P->lp, "prueba.lp" , NULL);
+	//int dk =3 ;
+}
+
+
+
 void Create_benson_model(MOILP *P) {
 	//Given the original MIN model, create the Benson model
 	// MAX (l1 + l2 + ... + lp)
@@ -571,6 +663,18 @@ void CREATE_MODEL(MOILP *P, int *indices, Input *input) {
 	else if (input->parameterization_model == "benson") {
 		Create_benson_model(P);
 	}
+	else if (input->parameterization_model == "holzmann") {
+		Create_holzmann_model(P, indices);
+	}
+}
+
+Box *SELECT_NEXT_BOX_3(MOILP *P, list<Box *> *L) {
+	//The next box to select is in the top of L[0] (maximum value in the current list of boxes)
+	TIEMPO tt;
+	tt.init();
+	list<Box *>::iterator  it = L->begin();
+	tt.acum(); P->Count.TSearching_next_box += tt.value();
+	return *it;
 }
 
 Box *SELECT_NEXT_BOX_2(MOILP *P, vector<multiset<Box *, Compare_value>> *L) {
@@ -617,6 +721,20 @@ void set_time_for_solver(MOILP *P, TIEMPO *t) {
 	CPXsetdblparam(*P->env, CPX_PARAM_TILIM, tt);
 }
 
+void Solve3(MOILP *P, int *stat, double *x, double *obj) {
+	//Solve a MIP problem, returning the stat, solution, objective value and execution time
+	TIEMPO t;
+	t.init();
+	CPXmipopt(*P->env, *P->lp);
+	CPXgetobjval(*P->env, *P->lp, obj);
+	*stat = CPXgetx(*P->env, *P->lp, x, 0, P->n_var);
+	*stat = CPXgetstat(*P->env, *P->lp);
+	P->n_iterations++;
+	t.acum();
+	P->Count.TSolver += t.value();
+}
+
+
 void Solve(MOILP *P, int *stat, double *x, double *obj) {
 	//Solve a MIP problem, returning the stat, solution, objective value and execution time
 	TIEMPO t;
@@ -629,6 +747,106 @@ void Solve(MOILP *P, int *stat, double *x, double *obj) {
 	t.acum();
 	P->Count.TSolver += t.value();
 }
+
+void set_w_holzmann(vector<double> &w_, double s_value, MOILP *P, point &UB){
+	//Vector w
+	for (int i = 0; i < p ; i++){
+		//w_[i] = 1.0 / max(s_value, UB[i] - LB[i]);
+		w_[i] = 1.0 / max(s_value, UB[i] - P->Ideal[i]);
+	}
+}
+
+double set_epsilon_holzmann(double s_value, point &LB, point &UB, int TYPE){
+	//Calculate r = max (UB[i] - LB[i])	   for i = 1,..,p
+	double r = 0;
+	for (int i = 0 ; i < p ; i++){
+		if (UB[i] - LB[i] > r)	r = UB[i] - LB[i];
+	}
+
+	//Epsilon = s/(2*p*(r-s))
+	double eps = s_value / (2 * p * (r - s_value));
+	//if (TYPE == -1) eps = -eps;
+	return eps;
+	//return s_value / (2 * p * (r - s_value));
+}
+
+double getoffsetvalue(double eps, point &w, point Ideal, int type_problem){
+	double offset = 0.0;
+	for (int i = 0 ; i < p ; i++){
+		offset += w[i] * Ideal[i];
+	}
+	offset *= eps;
+	//if (type_problem == -1) offset = -offset;
+	return -offset;
+	//return offset;
+}
+
+
+
+void Set_constraint_extreme_box(MOILP *P, point *LB, point *UB, double &eps) {
+	//Set the objective coefficient costs and constraint costs, including rhs values.
+	
+	vector<double> w_(p);
+	set_w_holzmann(w_,S_VALUE_HOLZMANN, P, *UB);
+
+
+	//SETTING RHS VALUES
+	int *indices = (int *)malloc(p * sizeof(int));
+	double *values = (double *)malloc(p * sizeof(double));
+
+	//Set the rhs values for the p constraints (wi fi(x) - lambda <= wi * zi^I) 
+	for (int i = 0; i < p; i++) {
+		indices[i] = P->n_const + i;
+		values[i] = w_[i] * P->Ideal[i];	
+		
+	}
+	CPXchgrhs(*P->env, *P->lp, p, indices, values); 
+
+	
+
+	//SETTING COEFFIENTS OF COST MATRIX AND OBJECTIVES
+	int n = P->n_var;
+	int m = P->n_const;
+
+	double coef;
+
+	//Set the objective cost coefficients ( sum(eps * wi * fi(x)) - sum(eps * wi * zi^I) )
+
+	//Change the offset value (independent term) - sum(eps * wi * zi^I)
+	double offset = getoffsetvalue(eps, w_, P->Ideal, P->original_problem_type);
+	CPXchgobjoffset(*P->env, *P->lp, offset);
+	
+	//Objective cost coefficients:  sum(eps * wi * fi(x)) 
+	int *indices2 = (int *)malloc(n * sizeof(int));
+	double *values2 = (double *)malloc(n * sizeof(double));
+	
+	for (int j = 0; j < n; j++) {
+		indices2[j] = j;
+		values2[j] = 0;
+		for (int i = 0 ; i < p ; i++){
+			values2[j] += w_[i] * P->F[i][j];
+			
+		}
+		values2[j] *= eps;
+	
+	}
+	int dk = CPXchgobj(*P->env, *P->lp , n,  indices2,  values2);
+	free(indices2); free(values2);
+
+	
+	
+	//Set the coefficient matrix values for the p constraints (wi fi(x) - lambda <= wi * zi^I) 
+	for (int i = m ; i < m + p; i++) {
+		for (int j = 0 ; j < n ; j++){
+			//int stat = CPXgetcoef(*P->env, *P->lp, i , j, &coef);
+			coef = P->F[i-m][j];
+			CPXchgcoef(*P->env, *P->lp, i , j , w_[i-m] * coef);
+			
+		}
+	}
+
+}
+
 
 void Set_constraint_extreme_box(MOILP *P, point *LB, point *UB) {
 	//Set the rhs values for the new constraints (fi(x) <= ki) in the current iteration
@@ -668,8 +886,65 @@ void Add_new_PF_point(double *x, int dim_x, point *z, std::list<solution> *PF, d
 	A->x = xx;
 	A->z = zz;
 	A->time_point = time;
-	PF->push_back(*A);
+
+	std::list<solution> Elim;
+	int a = insert_lexi_solution_without_domination(-1, A, PF, &Elim, p);
+	//PF->push_back(*A);
+
 }
+
+
+
+void Find_upper_bounds_that_contains_z_3(MOILP *P, vector<list<Box *>> *Bj, list<Box *> *R, list<Box *> *L, point *z) {
+	//In case of option "alternate RE", R will be a subset of L, which contains all boxes with upper bound dominating the point z.
+	//Bj , j=1,..,p   are the set of points that have 1 component equals z (weakly dominates)
+	TIEMPO t;
+	t.init();
+	int i, j;
+	list<Box *>::iterator k;
+	int coincidence_axis;
+	int number_of_coincidences;
+	bool dominates;
+
+	k = L->begin();
+	while (k != L->end()) {
+		coincidence_axis = -1;
+		number_of_coincidences = 0;
+		dominates = true;
+		for (j = 0; j < p; j++) {
+			if (z->at(j) >(*k)->ub->at(j)) {
+				dominates = false;
+				j = p;
+			}
+			else if (z->at(j) == (*k)->ub->at(j)) {
+				coincidence_axis = j;
+				number_of_coincidences++;
+			}
+		}
+		if (dominates) {
+			if (coincidence_axis == -1) { //Strictly dominates
+				R->push_back(*k);
+				k = L->erase(k);
+			}
+			else if (number_of_coincidences == 1) {
+
+				Bj->at(coincidence_axis).push_back(*k);
+				k = L->erase(k);
+			}
+			else {
+				++k;
+			}
+		}
+		else {
+			++k;
+		}
+	}
+	
+	t.acum();
+	P->Count.TSearching_reachable += t.value();
+	
+}
+
 
 void Find_upper_bounds_that_contains_z_2(MOILP *P, vector<list<Container>> *Bj, list<Container> *R, vector<multiset<Box *, Compare_value>> *L, point *z) {
 	//In case of option "alternate RE", R will be a subset of L, which contains all boxes with upper bound dominating the point z.
@@ -725,6 +1000,7 @@ void Find_upper_bounds_that_contains_z_2(MOILP *P, vector<list<Container>> *Bj, 
 	P->Count.TSearching_reachable += t.value();
 }
 
+/*
 void Find_upper_bounds_that_strictly_contains_z_2(MOILP *P, list<Container> *R, vector<multiset<Box *, Compare_value>> *L, point *z) {
 	//In case of option "alternate RA", R will be a subset of L, which contains all boxes with upper bound dominating the point z.
 	TIEMPO t;
@@ -768,6 +1044,8 @@ void Find_upper_bounds_that_strictly_contains_z_2(MOILP *P, list<Container> *R, 
 	t.acum();
 	P->Count.TSearching_reachable += t.value();
 }
+*/
+
 
 void Find_upper_bounds_that_contains_z_1(MOILP *P, vector<list<Box *>> *Bj, list<Box *> *R, vector<multiset<Box *, Compare_value>> *L, point *z, int *RemainingBoxesToExplore) {
 	//In case of option of several lists and "RE", R will be a subset of L, which contains all boxes with upper bound dominating the point z.
@@ -807,6 +1085,7 @@ void Find_upper_bounds_that_contains_z_1(MOILP *P, vector<list<Box *>> *Bj, list
 					Bj->at(coincidence_axis).push_back(*k);
 					k = L->at(i).erase(k);
 					(*RemainingBoxesToExplore)--;
+					//++k;							/////////////////////////////////////////////////////////////7
 				}
 				else {
 					++k;
@@ -998,6 +1277,139 @@ void update_to_min_lb(point *LB, point *lb2) {
 	}
 }
 
+void UPDATE_BOXES_RE_3(MOILP *P, point *z, list<Box *> *L, Input *input, double *scaling) {
+	list<Box *> R;
+	list<Box *>::iterator it, it2;
+	int j;
+
+	vector<list<Box *>> Bj(p);
+	vector<list<Box *>> Pj(p);
+
+	//First part. Calculate R an Bj
+	Find_upper_bounds_that_contains_z_3(P, &Bj, &R, L, z);
+
+
+	//Second part. Partition boxes and save in P_j
+	if (input->partition == "full") {
+
+		while (R.size() > 0) {
+			it = R.begin();
+			for (j = 0; j < p; j++) {
+				Box *u_j = NULL;
+				u_j = PARTITION_BOX_full(P, *it, z, j, p, input, scaling);
+
+				if (u_j != NULL) {
+					Pj.at(j).push_back(u_j);
+				}
+			}
+			Destroy_box(*it);
+			R.pop_front();
+		}
+	}
+	/*else if (input->partition == "p-partition") {
+
+		while (R.size() > 0) {
+			it = R.begin();
+			point tz(p);
+			bool is_inside = Calculate_point_t(&tz, *it, z);
+
+			for (j = 0; j < p; j++) {
+				Box *u_j = NULL;
+				u_j = PARTITION_BOX_partition(P, *it, z, &tz, &is_inside, j, input, scaling);
+
+				if (u_j != NULL) {
+					Pj.at(j).push_back(u_j);
+
+				}
+			}
+			Destroy_box(*it);
+			R.pop_front();
+		}
+	}*/
+
+
+
+//Third part. Filtering solutions
+for (j = 0; j < p; j++) { //Comparing Pj with elements of Pj 
+		it = Pj.at(j).begin();
+		bool flag = false;;
+		while (it != Pj.at(j).end()) {
+			it2 = it;
+			++it2;
+			if (it2 == Pj.at(j).end()) ++it;
+			while (it2 != Pj.at(j).end()) {
+				flag = false;
+				if (compare_vectors((*it)->ub, (*it2)->ub, p)) { //if  (it <= it2)
+					//update_to_min_lb((*it2)->lb, (*it)->lb); //Updating it2->lb
+					//get_value((*it2), input->box_value, scaling);		//Recalculate the value when joining the two boxes
+
+					Destroy_box(*it);
+					it = Pj.at(j).erase(it);
+					it2 = Pj.at(j).end();
+					flag = true;
+				}
+				else if (compare_vectors((*it2)->ub, (*it)->ub, p)) { //it2 <= it
+					//update_to_min_lb((*it)->lb, (*it2)->lb); //Updating it2->lb
+					//get_value((*it), input->box_value, scaling);		//Recalculate the value when joining the two boxes
+
+					Destroy_box(*it2);
+					it2 = Pj.at(j).erase(it2);
+				}
+				else {
+					++it2;
+				}
+			}
+			if ((!flag) && (it != Pj.at(j).end()))
+				++it;
+		}
+	}
+
+	for (j = 0; j < p; j++) { //Comparing Pj with elements of Bj 
+		it = Pj.at(j).begin();
+		bool flag = false;
+		while (it != Pj.at(j).end()) {
+			it2 = Bj.at(j).begin();
+			if (it2 == Bj.at(j).end()) ++it;
+			while (it2 != Bj.at(j).end()) {
+				flag = false;
+				if (compare_vectors((*it)->ub, (*it2)->ub, p)) { //it <= it2
+					//update_to_min_lb((*it2)->lb, (*it)->lb); //Updating it2->lb
+					//get_value((*it2), input->box_value, scaling);		//Recalculate the value when joining the two boxes
+
+					Destroy_box(*it);
+
+					it = Pj.at(j).erase(it);
+					it2 = Bj.at(j).end();
+					flag = true;
+				}
+				else {
+					++it2;
+				}
+			}
+			if ((!flag) && (it != Pj.at(j).end()))
+				++it;
+		}
+	}
+
+
+
+//Fourth part. Updating TREES
+	for (j = 0; j < p; j++) {
+		it = Pj.at(j).begin();
+		while (it != Pj.at(j).end()) {
+			INSERT_INTO_LIST_3(P, L, *it);
+			it = Pj.at(j).erase(it);
+		}
+		it = Bj.at(j).begin();
+		while (it != Bj.at(j).end()) {
+			INSERT_INTO_LIST_3(P, L, *it);
+			it = Bj.at(j).erase(it);
+		}
+	}
+
+}
+
+
 void UPDATE_BOXES_RE_2(MOILP *P, point *z, vector<multiset<Box *, Compare_value>> *L, Input *input, double *scaling, int *number_of_lists) {
 	list<Container> R;
 	list<Container>::iterator it, it2;
@@ -1147,7 +1559,9 @@ void UPDATE_BOXES_RE_2(MOILP *P, point *z, vector<multiset<Box *, Compare_value>
 	}
 }
 
-void UPDATE_BOXES_RE_1(MOILP *P, point *z, vector<multiset<Box *, Compare_value>> *L, Input *input, double *scaling, int *RemainingBoxesToExplore) {
+
+
+void UPDATE_BOXES_RE_1(MOILP *P, point *z, Box *B, vector<multiset<Box *, Compare_value>> *L, Input *input, double *scaling, int *RemainingBoxesToExplore) {
 	list<Box *> R;
 	list<Box *>::iterator it, it2;
 	int j;
@@ -1155,6 +1569,7 @@ void UPDATE_BOXES_RE_1(MOILP *P, point *z, vector<multiset<Box *, Compare_value>
 	vector<list<Box *>> Bj(p);
 	vector<list<Box *>> Pj(p);
 
+	
 	//First part. Calculate R an Bj
 	Find_upper_bounds_that_contains_z_1(P, &Bj, &R, L, z, RemainingBoxesToExplore);
 
@@ -1271,20 +1686,257 @@ void UPDATE_BOXES_RE_1(MOILP *P, point *z, vector<multiset<Box *, Compare_value>
 	}
 }
 
-void RUN_ANYTIME_ALGORITHM_2(MOILP *P, Input *input) {
+
+void UPDATE_BOXES_RE_1(MOILP *P, point *z, vector<multiset<Box *, Compare_value>> *L, Input *input, double *scaling, int *RemainingBoxesToExplore) {
+	list<Box *> R;
+	list<Box *>::iterator it, it2;
+	int j;
+
+	vector<list<Box *>> Bj(p);
+	vector<list<Box *>> Pj(p);
+
+	
+
+	//First part. Calculate R an Bj
+	Find_upper_bounds_that_contains_z_1(P, &Bj, &R, L, z, RemainingBoxesToExplore);
+
+	
+
+	//Second part. Partition boxes and save them in Pj
+	if (input->partition == "full") {
+		while (R.size() > 0) {
+			it = R.begin();
+			for (j = 0; j < p; j++) {
+				Box *u_j = NULL;
+				u_j = PARTITION_BOX_full(P, *it, z, j, p, input, scaling);
+
+				if (u_j != NULL) {
+					Pj.at(j).push_back(u_j);
+				}
+			}
+			Destroy_box(*it);
+			R.pop_front();
+		}
+	}
+	else if (input->partition == "p-partition") {
+		while (R.size() > 0) {
+			it = R.begin();
+			point tz(p);
+			bool is_inside = Calculate_point_t(&tz, *it, z);
+
+			for (j = 0; j < p; j++) {
+				Box *u_j = NULL;
+				u_j = PARTITION_BOX_partition(P, *it, z, &tz, &is_inside, j, input, scaling);
+
+				if (u_j != NULL) {
+					Pj.at(j).push_back(u_j);
+
+				}
+			}
+			Destroy_box(*it);
+			R.pop_front();
+		}
+	}
+
+	//Third part. Filtering solutions
+	for (j = 0; j < p; j++) { //Comparing Pj with elements of Pj 
+		it = Pj.at(j).begin();
+		bool flag = false;;
+		while (it != Pj.at(j).end()) {
+			it2 = it;
+			++it2;
+			if (it2 == Pj.at(j).end()) ++it;
+			while (it2 != Pj.at(j).end()) {
+				flag = false;
+				if (compare_vectors((*it)->ub, (*it2)->ub, p)) { //if  (it <= it2)
+					update_to_min_lb((*it2)->lb, (*it)->lb); //Updating it2->lb
+					get_value((*it2), input->box_value, scaling);		//Recalculate the value when joining the two boxes
+
+					Destroy_box(*it);
+					it = Pj.at(j).erase(it);
+					it2 = Pj.at(j).end();
+					flag = true;
+				}
+				else if (compare_vectors((*it2)->ub, (*it)->ub, p)) { //it2 <= it
+					update_to_min_lb((*it)->lb, (*it2)->lb); //Updating it2->lb
+					get_value((*it), input->box_value, scaling);		//Recalculate the value when joining the two boxes
+
+					Destroy_box(*it2);
+					it2 = Pj.at(j).erase(it2);
+				}
+				else {
+					++it2;
+				}
+			}
+			if ((!flag) && (it != Pj.at(j).end()))
+				++it;
+		}
+	}
+
+	for (j = 0; j < p; j++) { //Comparing Pj with elements of Bj 
+		it = Pj.at(j).begin();
+		bool flag = false;
+		while (it != Pj.at(j).end()) {
+			it2 = Bj.at(j).begin();
+			if (it2 == Bj.at(j).end()) ++it;
+			while (it2 != Bj.at(j).end()) {
+				flag = false;
+				if (compare_vectors((*it)->ub, (*it2)->ub, p)) { //it <= it2
+					update_to_min_lb((*it2)->lb, (*it)->lb); //Updating it2->lb
+					get_value((*it2), input->box_value, scaling);		//Recalculate the value when joining the two boxes
+
+					Destroy_box(*it);
+
+					it = Pj.at(j).erase(it);
+					it2 = Bj.at(j).end();
+					flag = true;
+				}
+				else {
+					++it2;
+				}
+			}
+			if ((!flag) && (it != Pj.at(j).end()))
+				++it;
+		}
+	}
+
+	//Fourth part. Updating TREES
+	for (j = 0; j < p; j++) {
+		it = Pj.at(j).begin();
+		while (it != Pj.at(j).end()) {
+			INSERT_INTO_LIST_1(P, L, *it, RemainingBoxesToExplore);
+			it = Pj.at(j).erase(it);
+		}
+		it = Bj.at(j).begin();
+		while (it != Bj.at(j).end()) {
+			INSERT_INTO_LIST_1(P, L, *it, RemainingBoxesToExplore);
+			it = Bj.at(j).erase(it);
+		}
+	}
+}
+
+
+
+bool new_solution_found(Box *B, point &Ideal, Input &input, int stat , double obj){
+	
+	if (input.parameterization_model == "holzmann"){
+		for (int g = 0 ; g < p ; g++){
+			if (B->ub->at(g) == Ideal.at(g)){
+				return false;
+			}
+		}
+		if (obj < 1) {
+			return true;
+		}
+	}
+	else{
+		if ( (stat == CPXMIP_OPTIMAL) || (stat == CPXMIP_OPTIMAL_TOL)) 
+			return true;
+	}
+	
+	
+	return false;
+}
+
+
+
+void RUN_ANYTIME_ALGORITHM_3(MOILP *P, Input *input) {
 	TIEMPO t_ref;
 	t_ref.init();
 
 	Box *B0 = new (Box), *B = new(Box);
-	vector<multiset<Box *, Compare_value>> L;
+	list<Box *> L;
+	
 
 	int stat;
 	double obj, tmax = P->max_time;
 	bool intime = true;
 	int *indices = (int *)malloc(P->n_var * sizeof(int));		for (int i = 0; i < P->n_var; i++) indices[i] = i;
 	double *scaling = (double *)malloc(P->dimension * sizeof(double));
-	double *x = (double *)malloc(P->n_var * sizeof(double));
+	double *x = (double *)malloc((P->n_var + 1) * sizeof(double));
 	point z;	z.resize(P->dimension);
+	double eps;	//Epsilon in Holzmann model
+
+	
+	printf("\nExecuting problem %s with <%s %s %s %s %s>", P->name.c_str(), input->partition.c_str(), input->parameterization_model.c_str(), input->box_value.c_str(), input->set_of_boxes.c_str(), input->filtering.c_str());
+
+	if (!Calculate_problem_bounds(P, indices, scaling)) return;			//Ideal, bound for Nadir point and range of objective functions
+
+	printf("\nCalculating Pareto front...");
+
+	CREATE_INITIAL_BOX(&B0, &P->Ideal, &P->BoundforNadir, input, scaling);
+	INSERT_INTO_LIST_3(P, &L, B0);
+	CREATE_MODEL(P, indices, input);
+
+	eps = set_epsilon_holzmann(S_VALUE_HOLZMANN, P->Ideal, P->BoundforNadir, P->original_problem_type);
+
+	while ((L.size() > 0) && (intime)) {
+
+		B = SELECT_NEXT_BOX_3(P, &L);
+
+		Set_constraint_extreme_box(P, B->lb, B->ub, eps);
+		set_time_for_solver(P, &t_ref);
+		
+		obj = -1;
+		Solve3(P, &stat, x, &obj);
+
+		if (new_solution_found (B, P->Ideal, *input, stat, obj) ){
+		//if ((stat == CPXMIP_OPTIMAL) || (stat == CPXMIP_OPTIMAL_TOL)) { //stat 101 or 102
+			Calculate_Image_of_x(P->F, x, P->n_var, &z, P->dimension);
+
+			
+			intime = check_time_and_pointlimit(&t_ref, tmax, P->PF->size(), P->pointlimit);
+
+			if (intime) {
+				Add_new_PF_point(x, P->n_var, &z, P->PF, t_ref.value());
+				UPDATE_BOXES_RE_3(P, &z, &L, input, scaling);
+			}
+		}
+		else { //Empty box or out of time 
+			L.pop_front();
+			Destroy_box(B);
+			P->Count.nosolution++;
+		}
+		
+		intime = check_time_and_pointlimit(&t_ref, tmax, P->PF->size(), P->pointlimit);
+	}
+
+
+	//Finish execution
+	t_ref.acum();
+	P->Count.total_time = t_ref.value();
+	printf("\nEnd of execution after %lf seconds\n", P->Count.total_time);
+
+	//Free allocated memory
+	P->Count.Remainingboxestoexplore = L.size();
+	while (L.size() > 0) {
+		Destroy_box(L.front());
+		L.pop_front();
+	}
+	free(indices);	free(scaling);	free(x);
+
+}
+
+
+
+void RUN_ANYTIME_ALGORITHM_2(MOILP *P, Input *input) {
+	TIEMPO t_ref;
+	t_ref.init();
+
+	Box *B0 = new (Box), *B = new(Box);
+	vector<multiset<Box *, Compare_value>> L;
+	
+
+	int stat;
+	double obj, tmax = P->max_time;
+	bool intime = true;
+	int *indices = (int *)malloc(P->n_var * sizeof(int));		for (int i = 0; i < P->n_var; i++) indices[i] = i;
+	double *scaling = (double *)malloc(P->dimension * sizeof(double));
+	double *x = (double *)malloc((P->n_var +1) * sizeof(double));
+	point z;	z.resize(P->dimension);
+
+	double eps;	//Epsilon in Holzmann model
+
 	int number_of_lists;
 	if (input->set_of_boxes == "inf") number_of_lists = MAX_INTEGER;
 	else number_of_lists = atoi(input->set_of_boxes.c_str());
@@ -1299,27 +1951,35 @@ void RUN_ANYTIME_ALGORITHM_2(MOILP *P, Input *input) {
 	INSERT_INTO_LIST_2(P, &L, B0, 0);
 	CREATE_MODEL(P, indices, input);
 
+	if (input->parameterization_model == "holzmann"){
+		eps = set_epsilon_holzmann(S_VALUE_HOLZMANN, P->Ideal, P->BoundforNadir, P->original_problem_type);
+	}
+
+
 	while ((L.size() > 0) && (intime)) {
 
 		B = SELECT_NEXT_BOX_2(P, &L);
 
-		Set_constraint_extreme_box(P, B->lb, B->ub);
+		if (input->parameterization_model == "holzmann"){
+			Set_constraint_extreme_box(P, B->lb, B->ub, eps);
+			obj = -1;
+		}
+		else
+			Set_constraint_extreme_box(P, B->lb, B->ub);
+
 		set_time_for_solver(P, &t_ref);
 		
-		Solve(P, &stat, x, &obj);
+		Solve3(P, &stat, x, &obj);
 
-		if ((stat == CPXMIP_OPTIMAL) || (stat == CPXMIP_OPTIMAL_TOL)) { //stat 101 or 102
+		if (new_solution_found (B, P->Ideal, *input, stat, obj) ){
+		//if ((stat == CPXMIP_OPTIMAL) || (stat == CPXMIP_OPTIMAL_TOL)) { //stat 101 or 102
 			Calculate_Image_of_x(P->F, x, P->n_var, &z, P->dimension);
 
 			intime = check_time_and_pointlimit(&t_ref, tmax, P->PF->size(), P->pointlimit);
 
 			if (intime) {
 				Add_new_PF_point(x, P->n_var, &z, P->PF, t_ref.value());
-
-
-				if (input->filtering == "RE") {
-					UPDATE_BOXES_RE_2(P, &z, &L, input, scaling, &number_of_lists);
-				}
+				UPDATE_BOXES_RE_2(P, &z, &L, input, scaling, &number_of_lists);
 			}
 		}
 		else { //Empty box or out of time 
@@ -1353,6 +2013,10 @@ void RUN_ANYTIME_ALGORITHM_2(MOILP *P, Input *input) {
 	free(indices);	free(scaling);	free(x);
 }
 
+
+
+
+
 void RUN_ANYTIME_ALGORITHM_1(MOILP *P, Input *input) {
 	TIEMPO t_ref;
 	t_ref.init();
@@ -1365,8 +2029,12 @@ void RUN_ANYTIME_ALGORITHM_1(MOILP *P, Input *input) {
 	bool intime = true;
 	int *indices = (int *)malloc(P->n_var * sizeof(int));		for (int i = 0; i < P->n_var; i++) indices[i] = i;
 	double *scaling = (double *)malloc(p * sizeof(double));
-	double *x = (double *)malloc(P->n_var * sizeof(double));
+	double *x = (double *)malloc((P->n_var + 1) * sizeof(double));
 	point z;	z.resize(p);
+
+	double eps;	//Epsilon in Holzmann model
+
+
 	int RemainingBoxesToExplore = 0;
 	int counter = 0;								//A counter for the current coordinate list to analyze
 
@@ -1380,25 +2048,37 @@ void RUN_ANYTIME_ALGORITHM_1(MOILP *P, Input *input) {
 	INSERT_INTO_LIST_1(P, &L, B0, &RemainingBoxesToExplore);
 	CREATE_MODEL(P, indices, input);
 
+
+	if (input->parameterization_model == "holzmann"){
+		eps = set_epsilon_holzmann(S_VALUE_HOLZMANN, P->Ideal, P->BoundforNadir, P->original_problem_type);
+	}
+
+
 	while ((RemainingBoxesToExplore > 0) && (intime)) {
 
 		B = SELECT_NEXT_BOX_1(P, &L, &counter);
 
-		Set_constraint_extreme_box(P, B->lb, B->ub);
-		set_time_for_solver(P, &t_ref);
-		Solve(P, &stat, x, &obj);
+		if (input->parameterization_model == "holzmann"){
+			Set_constraint_extreme_box(P, B->lb, B->ub, eps);
+			obj = -1;
+		}
+		else
+			Set_constraint_extreme_box(P, B->lb, B->ub);
 
-		if ((stat == CPXMIP_OPTIMAL) || (stat == CPXMIP_OPTIMAL_TOL)) { //stat 101 or 102
+
+		set_time_for_solver(P, &t_ref);
+
+		Solve3(P, &stat, x, &obj);
+
+		if ( new_solution_found(B, P->Ideal, *input, stat, obj) ){
+		//if ((stat == CPXMIP_OPTIMAL) || (stat == CPXMIP_OPTIMAL_TOL)) { //stat 101 or 102
 			Calculate_Image_of_x(P->F, x, P->n_var, &z, p);
 
 			intime = check_time_and_pointlimit(&t_ref, tmax, P->PF->size(), P->pointlimit);
 
 			if (intime) {
 				Add_new_PF_point(x, P->n_var, &z, P->PF, t_ref.value());
-
-				if (input->filtering == "RE") {
-					UPDATE_BOXES_RE_1(P, &z, &L, input, scaling, &RemainingBoxesToExplore);
-				}
+				UPDATE_BOXES_RE_1(P, &z, B, &L, input, scaling, &RemainingBoxesToExplore);
 			}
 		}
 		else {	//The box is empty
@@ -1662,7 +2342,6 @@ int insert_lexi_solution_without_domination(int type, solution *v, list<solution
 						aa = compare_lex_4(&(*it1), &(*it3), 0, p);
 						if (aa == 1) {
 							Eliminated_vectors->push_back(*it3);
-
 							it3 = L->erase(it3);
 							n_eliminated++;
 						}
@@ -1836,7 +2515,10 @@ void Write_Results_file(MOILP *P, Input *input, string date, string hour, bool c
 	CPXgetintparam(*P->env, CPX_PARAM_THREADS, &i_param[1]);
 
 	fprintf(fp, "%s\t%s\t", date.c_str(), hour.c_str());  //Date and hour
-	fprintf(fp, "%s\t", archive.c_str());
+
+	std::string name_ = archive + "_" + date + hour + std::to_string(P->Count.total_time);
+	fprintf(fp, "%s\t", name_.c_str());
+	//fprintf(fp, "%s\t", archive.c_str());
 	if (P->max_time == MAX_DOUBLE)
 		fprintf(fp, "----\t");
 	else	fprintf(fp, "%0.2f\t", P->max_time);
@@ -1855,7 +2537,7 @@ void Write_Results_file(MOILP *P, Input *input, string date, string hour, bool c
 
 int main(int argc, char **argv) {
 	//main archive1 % archive2 % tmax % pointlimit % partition % model % value % set_of_boxes % filtering % cpx_param_parallel % cpx_param_threads (11 input parameters)
-	
+
 	Input input;								//Input parameters
 	MOILP P;									//New Model 
 	std::string date, hour;						//Date and system time					
@@ -1865,19 +2547,25 @@ int main(int argc, char **argv) {
 	Create_CPLEX_object_and_set_CPLEX_parameters(&P, input.lp_model, input.cpx_param_parallel, input.cpx_param_threads);
 	Set_MOILP_structure(&P, &input);
 
-	if (input.set_of_boxes == "alternate") {
-		RUN_ANYTIME_ALGORITHM_1(&P, &input);		//Consider p lists of boxes and alternating the lists for every iteration
+	if ( (input.partition == "full") && (input.parameterization_model == "holzmann") ){
+		RUN_ANYTIME_ALGORITHM_3(&P, &input);		//Consider a fixed list of boxes (or infinite). 
 	}
-	else {
-		RUN_ANYTIME_ALGORITHM_2(&P, &input);		//Consider a fixed list of boxes (or infinite). 
+	else{
+		if (input.set_of_boxes == "alternate") {
+			RUN_ANYTIME_ALGORITHM_1(&P, &input);		//Consider p lists of boxes and alternating the lists for every iteration
+		}
+		else {
+			RUN_ANYTIME_ALGORITHM_2(&P, &input);		//Consider a fixed list of boxes (or infinite). 
+		}
 	}
-	
 	Calculate_date_and_hour(&date, &hour);
 	Transform_pareto_front_if_neccesary(&P);		//If original model was MAX, transform the solution
 	correctPF = Check_Pareto_front((&P)->PF, (&P)->original_problem_type, p, (&P)->n_var);
 	Print_solution_in_file(&P, date, hour, correctPF);
 	Write_Results_file(&P, &input, date, hour, correctPF);
 		
+
+	
 	//Free MOILP 
 	free_problem_memory(&P);
 
