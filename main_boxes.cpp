@@ -1,4 +1,4 @@
-//Algorithm which calculates the Pareto front of an MOCO (multiobjective combinatorial optimization) problem
+//Algorithm which calculates the Pareto front for MOCO (multiobjective combinatorial optimization) problem
 //
 //Author: Miguel Angel Dominguez Rios
 //Date of last modification : 06/05/2020
