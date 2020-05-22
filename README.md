@@ -3,15 +3,15 @@ There is a makefile file to compile the sources. This makefile mut be edited pri
 
 Once you edited the makefile, run it with the `make` command to generate an executable linked with the static library of CPLEX. 
 
-# Executing  full  and TPA
-
-To execute algorithm full, type:
-
-`./BOXES (arg1) (arg2) (arg3) 0 full chalmet volume 1 RE 1 1`
+# Executing TPA and holzmann
 
 To execute algorithm TPA, type:
 
-`./BOXES (arg1) (arg2) (arg3) 0 p-partition tchebycheff scaled_volume 1 RE 1 1`
+`./BOXES (arg1) (arg2) (arg3) 0 p-partition holzmann scaled_volume 1 RE 1 1`
+
+To execute algorithm holzmann, type:
+
+`./BOXES (arg1) (arg2) (arg3) 0 full holzmann volume 1 RE 1 1`
 
 - (arg1) is the objective costs file
 - (arg2) is the `.lp` file
@@ -28,7 +28,7 @@ The software provide more options to execute, such as limitation of the number o
 - (arg3) is the maximum total execution time in seconds (0 for unlimited time)
 - (arg4) is the maximum size of the Pareto front (0 for unlimited size)
 - (arg5) is the type of partition. Type 1(`full`) or 2(`p-partition`)
-- (arg6) is the parameterization model. Type 1(`chalmet`) or 2(`tchebycheff`) 
+- (arg6) is the parameterization model. Type 1(`chalmet`), 2(`tchebycheff`) or 4(`holzmann`)
 - (arg7) is the box value. Type 11(`volume`) or 14(`reduced_scaled`)
 - (arg8) is the number of set of boxes used. Type `1` or `alternate`.
 - (arg9) is the filtering proccess. Type 1(`RE`).
