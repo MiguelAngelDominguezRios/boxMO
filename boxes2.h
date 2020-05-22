@@ -1,5 +1,3 @@
-﻿
-
 #include <list>
 #include <vector>
 #include <ilcplex/cplex.h>
@@ -18,6 +16,8 @@ using namespace std;
 
 #define MAX_INTEGER INT_MAX
 #define MAX_DOUBLE CPX_INFBOUND
+#define S_VALUE_HOLZMANN 1
+
 
 typedef  vector<double>  point;
 
