@@ -7,7 +7,7 @@ Once you edited the makefile, run it with the `make` command to generate an exec
 
 To execute algorithm TPA, type:
 
-`./BOXES (arg1) (arg2) (arg3) 0 p-partition holzmann scaled_volume 1 RE 1 1`
+`./BOXES (arg1) (arg2) (arg3) 0 p-partition holzmann reduced_scaled 1 RE 1 1`
 
 To execute algorithm holzmann, type:
 
